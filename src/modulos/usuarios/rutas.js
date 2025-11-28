@@ -13,6 +13,9 @@ router.delete("/:id", seguridad(), eliminar);
 router.post("/", insertar);
 router.get("/oficio/:nombre", seguridad(), profesionalesPorOficio);
 router.get("/ubicacion/:zona/:ciudad", seguridad(), profesionalesPorUbicacion);
+router.get("/nombre/:nombre", seguridad(), profesionalesPorNombre);
+router.get("/todos/profesionales", seguridad(), profesionalesList);
+router.get("/todos/usuarios", seguridad(), usuariosNormalesList);
 
 async function todos(req, res, next) {
   try {
@@ -89,6 +92,28 @@ async function profesionalesPorUbicacion(req, res, next) {
   }
 }
 
-router.get("/ubicacion/:zona/:ciudad", seguridad(), profesionalesPorUbicacion);
+async function profesionalesPorNombre(req, res, next) {
+  try {
+    const nombre = normalizarParametro(req.params.nombre || "");
+    const lista = await controlador.profesionalesPorNombre(nombre);
+    respuestas.success(req, res, lista, 200);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function profesionalesList(req, res, next) {
+  try {
+    const lista = await controlador.listarProfesionales();
+    respuestas.success(req, res, lista, 200);
+  } catch (err) { next(err); }
+}
+
+async function usuariosNormalesList(req, res, next) {
+  try {
+    const lista = await controlador.listarUsuariosNormales();
+    respuestas.success(req, res, lista, 200);
+  } catch (err) { next(err); }
+}
 
 module.exports = router;

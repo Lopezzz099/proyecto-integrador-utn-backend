@@ -4,7 +4,6 @@ const config = require("./config");
 const app = express();
 const morgan = require("morgan");
 const error = require("./red/errors");
-const clientes = require("./modulos/clientes/rutas");
 const usuarios = require("./modulos/usuarios/rutas");
 const profesionales = require("./modulos/profesionales/rutas");
 const comentarios = require("./modulos/comentarios/rutas");
@@ -41,7 +40,6 @@ app.use(
 );
 
 //rutas
-app.use("/api/clientes", clientes);
 app.use("/api/usuarios", usuarios);
 app.use("/api/profesionales", profesionales);
 app.use("/api/comentarios", comentarios);

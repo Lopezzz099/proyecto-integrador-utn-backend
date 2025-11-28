@@ -1,6 +1,7 @@
 const crearError = require("../../middleware/errors");
 const bcrypt = require("bcrypt");
 const auth = require("../../auth");
+const { stripPassword, stripPasswords } = require("../../utils/segPassword");
 
 const TABLA = "usuarios";
 
@@ -10,34 +11,22 @@ module.exports = function (dbInyectada) {
     db = require("../../DB/mysql");
   }
 
-  function stripPassword(row) {
-    if (!row) return row;
-    const { password, ...rest } = row;
-    return rest;
-  }
-
   // GET /usuarios - Trae todos, profesionales con datos completos
   async function todos() {
     const usuarios = await db.todos(TABLA);
-
     const resultado = await Promise.all(
       usuarios.map(async (usuario) => {
-        const usuarioSinPassword = stripPassword(usuario);
-
         if (usuario.rol_id === 3) {
-          const completo = await unoConProfesional(usuario.id);
-          return completo;
+          return await unoConProfesional(usuario.id);
         }
-
-        return usuarioSinPassword;
+        return stripPassword(usuario);
       })
     );
-
     return resultado;
   }
 
   function uno(id) {
-    return db.uno(TABLA, id).then((rows) => rows.map(stripPassword));
+    return db.uno(TABLA, id).then(stripPasswords);
   }
 
   // GET usuario con rol 3: incluye profesional + comentarios + ubicaciones + oficios
@@ -114,7 +103,7 @@ module.exports = function (dbInyectada) {
       rows.forEach((r) => {
         if (r.comentario_id && !comentariosUnicos.has(r.comentario_id)) {
           comentariosUnicos.add(r.comentario_id);
-          usuario.profesional.comentarios.push({
+            usuario.profesional.comentarios.push({
             id: r.comentario_id,
             comentario: r.comentario,
             estrellas: r.estrellas,
@@ -142,61 +131,44 @@ module.exports = function (dbInyectada) {
     return usuario;
   }
 
-  // Verifica si el usuario buscado tiene rol_id 3 y devuelve apropiadamente
   async function obtenerUsuarioPorId(id) {
     const rows = await db.uno(TABLA, id);
-
     if (!rows || rows.length === 0) {
       throw crearError(`Usuario con id ${id} no encontrado`, 404);
     }
-
     const usuario = rows[0];
-
     if (usuario.rol_id === 3) {
       return await unoConProfesional(id);
     }
-
     return stripPassword(usuario);
   }
 
-  // Buscar o crear ubicación por zona y ciudad
   async function obtenerOCrearUbicacion(zona, ciudad) {
     if (!zona || !ciudad) {
       throw crearError("Ubicación debe tener zona y ciudad", 400);
     }
-
-    // Buscar si ya existe
     const existente = await db.consulta(
       "SELECT id FROM ubicaciones WHERE zona = ? AND ciudad = ?",
       [zona, ciudad]
     );
-
     if (existente && existente.length > 0) {
       return existente[0].id;
     }
-
-    // No existe, crear nueva
     const resultado = await db.insertar("ubicaciones", { zona, ciudad });
     return resultado.insertId;
   }
 
-  // Buscar o crear oficio por nombre
   async function obtenerOCrearOficio(nombre) {
     if (!nombre) {
       throw crearError("El oficio debe tener nombre", 400);
     }
-
-    // Buscar si ya existe
     const existente = await db.consulta(
       "SELECT id FROM oficios WHERE nombre = ?",
       [nombre]
     );
-
     if (existente && existente.length > 0) {
       return existente[0].id;
     }
-
-    // No existe, crear nuevo
     const resultado = await db.insertar("oficios", { nombre });
     return resultado.insertId;
   }
@@ -218,7 +190,6 @@ module.exports = function (dbInyectada) {
         throw crearError("Ubicación con zona y ciudad es requerida", 400);
       }
 
-      // Ubicacion solo para usuarios (ubicacion_id en tabla usuarios)
       const ubicacionId = await obtenerOCrearUbicacion(
         ubicacion.zona,
         ubicacion.ciudad
@@ -237,7 +208,7 @@ module.exports = function (dbInyectada) {
         const profesionalData = {
           usuario_id: usuarioId,
           descripcion: datosUsuario.descripcion || "",
-          verificacion: datosUsuario.verificacion || "0",
+            verificacion: datosUsuario.verificacion || "0",
           estado: datosUsuario.estado || "0",
           disponibilidad: datosUsuario.disponibilidad || "",
           promedio: 0,
@@ -248,8 +219,6 @@ module.exports = function (dbInyectada) {
           profesionalData
         );
         const profesionalId = resultadoProfesional.insertId;
-
-        // NO se agregan ubicaciones a ubicaciones_prof aquí (queda lista vacía)
 
         if (oficios && Array.isArray(oficios) && oficios.length > 0) {
           for (const nombreOficio of oficios) {
@@ -315,14 +284,11 @@ module.exports = function (dbInyectada) {
 
       if (datosUsuario.rol_id === 3) {
         const profesionalExistente = await db.consulta(
-          `
-    SELECT * FROM profesionales WHERE usuario_id = ?`,
+          `SELECT * FROM profesionales WHERE usuario_id = ?`,
           [body.id]
         );
-        console.log(profesionalExistente);
 
         const profesionalDataActual = profesionalExistente[0];
-
         let verificado = profesionalDataActual.verificacion;
 
         if (verificado !== 1) {
@@ -350,15 +316,9 @@ module.exports = function (dbInyectada) {
 
         await db.actualizar("profesionales", profesionalData);
 
-        if (
-          ubicaciones &&
-          Array.isArray(ubicaciones) &&
-          ubicaciones.length > 0
-        ) {
+        if (ubicaciones && Array.isArray(ubicaciones) && ubicaciones.length > 0) {
           await db.consulta(
-            `
-            DELETE FROM ubicaciones_prof WHERE profesional_id = ?
-          `,
+            `DELETE FROM ubicaciones_prof WHERE profesional_id = ?`,
             [profesionalDataActual.id]
           );
           for (const nombreUbicacion of ubicaciones) {
@@ -367,35 +327,30 @@ module.exports = function (dbInyectada) {
               typeof nombreUbicacion.ciudad !== "string"
             ) {
               throw crearError(
-                "Cada ubicación debe tener una zona y una ciudad como cadenas de texto",
+                "Cada ubicación debe tener zona y ciudad como texto",
                 400
               );
             }
-            if (
-              !nombreUbicacion.zona.trim() ||
-              !nombreUbicacion.ciudad.trim()
-            ) {
+            if (!nombreUbicacion.zona.trim() || !nombreUbicacion.ciudad.trim()) {
               throw crearError(
-                "La zona y la ciudad no pueden ser cadenas vacías",
+                "La zona y la ciudad no pueden estar vacías",
                 400
               );
             }
-            const ubicacionId = await obtenerOCrearUbicacion(
+            const ubicacionIdTemp = await obtenerOCrearUbicacion(
               nombreUbicacion.zona,
               nombreUbicacion.ciudad
             );
             await db.insertar("ubicaciones_prof", {
               profesional_id: profesionalDataActual.id,
-              ubicacion_id: ubicacionId,
+              ubicacion_id: ubicacionIdTemp,
             });
           }
         }
 
         if (oficios && Array.isArray(oficios) && oficios.length > 0) {
           await db.consulta(
-            `
-            DELETE FROM oficios_prof WHERE profesional_id = ?
-          `,
+            `DELETE FROM oficios_prof WHERE profesional_id = ?`,
             [profesionalDataActual.id]
           );
           for (const nombreOficio of oficios) {
@@ -403,10 +358,7 @@ module.exports = function (dbInyectada) {
               throw crearError("Cada oficio debe ser un string (nombre)", 400);
             }
             if (!nombreOficio.trim()) {
-              throw crearError(
-                "El nombre del oficio no puede ser una cadena vacía",
-                400
-              );
+              throw crearError("El nombre del oficio no puede estar vacío", 400);
             }
             const oficioId = await obtenerOCrearOficio(nombreOficio);
             await db.insertar("oficios_prof", {
@@ -439,16 +391,13 @@ module.exports = function (dbInyectada) {
 
   async function login(email, password) {
     const data = await db.login(TABLA, email);
-
     if (!data || data.length === 0) {
       throw crearError("Usuario no encontrado", 404);
     }
-
     const usuario = data[0];
     const resultado = await bcrypt.compare(password, usuario.password);
-
     if (resultado === true) {
-      const { password, ...usuarioSinPassword } = usuario;
+      const usuarioSinPassword = stripPassword(usuario);
       return auth.asignarToken(usuarioSinPassword);
     } else {
       throw crearError("Credenciales inválidas", 401);
@@ -460,7 +409,6 @@ module.exports = function (dbInyectada) {
       throw crearError("Nombre de oficio requerido", 400);
     }
     const filtro = nombreOficio.trim();
-
     const rows = await db.consulta(
       `
       SELECT DISTINCT u.id
@@ -473,11 +421,9 @@ module.exports = function (dbInyectada) {
       `,
       [`%${filtro}%`]
     );
-
     if (!rows || rows.length === 0) {
       return [];
     }
-
     const resultado = [];
     for (const r of rows) {
       const detalle = await unoConProfesional(r.id);
@@ -487,10 +433,14 @@ module.exports = function (dbInyectada) {
   }
 
   async function profesionalesPorUbicacion(zonaParam, ciudadParam) {
-    if (!zonaParam || !zonaParam.trim() || !ciudadParam || !ciudadParam.trim()) {
+    if (
+      !zonaParam ||
+      !zonaParam.trim() ||
+      !ciudadParam ||
+      !ciudadParam.trim()
+    ) {
       throw crearError("Zona y ciudad requeridas", 400);
     }
-
     const rows = await db.consulta(
       `
       SELECT DISTINCT u.id
@@ -504,17 +454,65 @@ module.exports = function (dbInyectada) {
       `,
       [`%${zonaParam}%`, `%${ciudadParam}%`]
     );
-
     if (!rows || rows.length === 0) {
       return [];
     }
-
     const resultado = [];
     for (const r of rows) {
       const detalle = await unoConProfesional(r.id);
       if (detalle) resultado.push(detalle);
     }
     return resultado;
+  }
+
+  async function profesionalesPorNombre(nombreParam) {
+    if (!nombreParam || !nombreParam.trim()) {
+      throw crearError("Nombre requerido", 400);
+    }
+    const filtro = nombreParam.trim();
+    const rows = await db.consulta(
+      `
+      SELECT DISTINCT u.id
+      FROM usuarios u
+      JOIN profesionales p ON p.usuario_id = u.id
+      WHERE u.rol_id = 3
+        AND u.nombre LIKE ?
+      `,
+      [`%${filtro}%`]
+    );
+    if (!rows || rows.length === 0) {
+      return [];
+    }
+    const resultado = [];
+    for (const r of rows) {
+      const detalle = await unoConProfesional(r.id);
+      if (detalle) resultado.push(detalle);
+    }
+    return resultado;
+  }
+
+  async function listarProfesionales() {
+    const rows = await db.consulta(`
+      SELECT u.id
+      FROM usuarios u
+      JOIN profesionales p ON p.usuario_id = u.id
+      WHERE u.rol_id = 3
+    `);
+    const resultado = [];
+    for (const r of rows) {
+      const detalle = await unoConProfesional(r.id);
+      if (detalle) resultado.push(detalle);
+    }
+    return resultado;
+  }
+
+  async function listarUsuariosNormales() {
+    const rows = await db.consulta(`
+      SELECT *
+      FROM usuarios
+      WHERE rol_id = 2
+    `);
+    return stripPasswords(rows);
   }
 
   return {
@@ -527,6 +525,9 @@ module.exports = function (dbInyectada) {
     actualizar,
     login,
     profesionalesPorOficio,
-    profesionalesPorUbicacion
+    profesionalesPorUbicacion,
+    profesionalesPorNombre,
+    listarProfesionales,
+    listarUsuariosNormales,
   };
 };

@@ -3,7 +3,6 @@ const bcrypt = require("bcrypt");
 const auth = require("../../auth");
 
 const TABLA = "usuarios";
-// const ROL_POR_DEFECTO = 2;
 
 module.exports = function (dbInyectada) {
   let db = dbInyectada;
@@ -20,22 +19,20 @@ module.exports = function (dbInyectada) {
   // GET /usuarios - Trae todos, profesionales con datos completos
   async function todos() {
     const usuarios = await db.todos(TABLA);
-    
-    // Para cada usuario con rol_id 3, obtener sus datos completos
+
     const resultado = await Promise.all(
       usuarios.map(async (usuario) => {
         const usuarioSinPassword = stripPassword(usuario);
-        
+
         if (usuario.rol_id === 3) {
-          // Obtener profesional + comentarios
           const completo = await unoConProfesional(usuario.id);
           return completo;
         }
-        
+
         return usuarioSinPassword;
       })
     );
-    
+
     return resultado;
   }
 
@@ -43,31 +40,44 @@ module.exports = function (dbInyectada) {
     return db.uno(TABLA, id).then((rows) => rows.map(stripPassword));
   }
 
-  // GET usuario con rol 3: incluye profesional + comentarios
+  // GET usuario con rol 3: incluye profesional + comentarios + ubicaciones + oficios
   async function unoConProfesional(id) {
-    const rows = await db.consulta(`
+    const rows = await db.consulta(
+      `
       SELECT 
         u.id AS usuario_id,
         u.nombre AS usuario_nombre,
-        u.apellido AS usuario_apellido,
+        u.condiciones AS usuario_condiciones,
         u.email AS usuario_email,
         u.telefono AS usuario_telefono,
         u.rol_id,
+        u.ubicacion_id AS usuario_ubicacion_id,
         p.id AS profesional_id,
-        p.condiciones,
         p.descripcion,
         p.verificacion,
         p.estado,
+        p.promedio,
         p.disponibilidad,
         c.id AS comentario_id,
         c.comentario,
         c.estrellas,
-        c.usuario_id AS comentario_usuario_id
+        c.usuario_id AS comentario_usuario_id,
+        pu.ubicacion_id AS ubicacion_id,
+        ub.zona AS ubicacion_zona,
+        ub.ciudad AS ubicacion_ciudad,
+        po.oficio_id AS oficio_id,
+        ofi.nombre AS oficio_nombre
       FROM usuarios u
       LEFT JOIN profesionales p ON p.usuario_id = u.id
       LEFT JOIN comentarios c ON c.profesional_id = p.id
+      LEFT JOIN ubicaciones_prof pu ON pu.profesional_id = p.id
+      LEFT JOIN ubicaciones ub ON ub.id = pu.ubicacion_id
+      LEFT JOIN oficios_prof po ON po.profesional_id = p.id
+      LEFT JOIN oficios ofi ON ofi.id = po.oficio_id
       WHERE u.id = ?
-    `, [id]);
+    `,
+      [id]
+    );
 
     if (!rows || rows.length === 0) {
       return null;
@@ -76,33 +86,54 @@ module.exports = function (dbInyectada) {
     const usuario = {
       id: rows[0].usuario_id,
       nombre: rows[0].usuario_nombre,
-      apellido: rows[0].usuario_apellido,
       email: rows[0].usuario_email,
       telefono: rows[0].usuario_telefono,
+      condiciones: rows[0].usuario_condiciones,
       rol_id: rows[0].rol_id,
+      ubicacion_id: rows[0].usuario_ubicacion_id,
       profesional: null,
-      comentarios: []
     };
 
     if (rows[0].profesional_id) {
       usuario.profesional = {
         id: rows[0].profesional_id,
-        condiciones: rows[0].condiciones,
         descripcion: rows[0].descripcion,
         verificacion: rows[0].verificacion,
         estado: rows[0].estado,
-        disponibilidad: rows[0].disponibilidad
+        disponibilidad: rows[0].disponibilidad,
+        promedio: rows[0].promedio,
+        ubicaciones: [],
+        oficios: [],
+        comentarios: [],
       };
 
       const comentariosUnicos = new Set();
-      rows.forEach(r => {
+      const ubicacionesUnicas = new Set();
+      const oficiosUnicos = new Set();
+
+      rows.forEach((r) => {
         if (r.comentario_id && !comentariosUnicos.has(r.comentario_id)) {
           comentariosUnicos.add(r.comentario_id);
-          usuario.comentarios.push({
+          usuario.profesional.comentarios.push({
             id: r.comentario_id,
             comentario: r.comentario,
             estrellas: r.estrellas,
-            usuario_id: r.comentario_usuario_id
+            usuario_id: r.comentario_usuario_id,
+          });
+        }
+        if (r.ubicacion_id && !ubicacionesUnicas.has(r.ubicacion_id)) {
+          ubicacionesUnicas.add(r.ubicacion_id);
+          usuario.profesional.ubicaciones.push({
+            id: r.ubicacion_id,
+            zona: r.ubicacion_zona,
+            ciudad: r.ubicacion_ciudad,
+          });
+        }
+        if (r.oficio_id && !oficiosUnicos.has(r.oficio_id)) {
+          oficiosUnicos.add(r.oficio_id);
+          usuario.profesional.oficios.push({
+            id: r.oficio_id,
+            nombre: r.oficio_nombre,
           });
         }
       });
@@ -114,40 +145,284 @@ module.exports = function (dbInyectada) {
   // Verifica si el usuario buscado tiene rol_id 3 y devuelve apropiadamente
   async function obtenerUsuarioPorId(id) {
     const rows = await db.uno(TABLA, id);
-    
+
     if (!rows || rows.length === 0) {
       throw crearError(`Usuario con id ${id} no encontrado`, 404);
     }
-    
+
     const usuario = rows[0];
-    
-    // Si el usuario consultado tiene rol_id 3, traer datos completos
+
     if (usuario.rol_id === 3) {
       return await unoConProfesional(id);
     }
-    
-    // Usuario normal: solo datos básicos sin password
+
     return stripPassword(usuario);
   }
 
-  function insertar(body) {
+  // Buscar o crear ubicación por zona y ciudad
+  async function obtenerOCrearUbicacion(zona, ciudad) {
+    if (!zona || !ciudad) {
+      throw crearError("Ubicación debe tener zona y ciudad", 400);
+    }
+
+    // Buscar si ya existe
+    const existente = await db.consulta(
+      "SELECT id FROM ubicaciones WHERE zona = ? AND ciudad = ?",
+      [zona, ciudad]
+    );
+
+    if (existente && existente.length > 0) {
+      return existente[0].id;
+    }
+
+    // No existe, crear nueva
+    const resultado = await db.insertar("ubicaciones", { zona, ciudad });
+    return resultado.insertId;
+  }
+
+  // Buscar o crear oficio por nombre
+  async function obtenerOCrearOficio(nombre) {
+    if (!nombre) {
+      throw crearError("El oficio debe tener nombre", 400);
+    }
+
+    // Buscar si ya existe
+    const existente = await db.consulta(
+      "SELECT id FROM oficios WHERE nombre = ?",
+      [nombre]
+    );
+
+    if (existente && existente.length > 0) {
+      return existente[0].id;
+    }
+
+    // No existe, crear nuevo
+    const resultado = await db.insertar("oficios", { nombre });
+    return resultado.insertId;
+  }
+
+  async function insertar(body) {
     if (!body.password) {
       throw crearError("Password requerido", 400);
     }
+    if (!body.rol_id) {
+      throw crearError("rol_id requerido", 400);
+    }
+
     body.password = bcrypt.hashSync(body.password, 10);
+    const { ubicacion, oficios, ...datosUsuario } = body;
 
-    // if (!body.rol_id) {
-    //   body.rol_id = ROL_POR_DEFECTO;
-    // }
+    await db.consulta("START TRANSACTION");
+    try {
+      if (!ubicacion || !ubicacion.zona || !ubicacion.ciudad) {
+        throw crearError("Ubicación con zona y ciudad es requerida", 400);
+      }
 
-    return db.insertar(TABLA, body);
+      // Ubicacion solo para usuarios (ubicacion_id en tabla usuarios)
+      const ubicacionId = await obtenerOCrearUbicacion(
+        ubicacion.zona,
+        ubicacion.ciudad
+      );
+      datosUsuario.ubicacion_id = ubicacionId;
+
+      const resultadoUsuario = await db.insertar(TABLA, datosUsuario);
+      const usuarioId = resultadoUsuario.insertId;
+
+      if (datosUsuario.rol_id === 2) {
+        await db.consulta("COMMIT");
+        return resultadoUsuario;
+      }
+
+      if (datosUsuario.rol_id === 3) {
+        const profesionalData = {
+          usuario_id: usuarioId,
+          descripcion: datosUsuario.descripcion || "",
+          verificacion: datosUsuario.verificacion || "0",
+          estado: datosUsuario.estado || "0",
+          disponibilidad: datosUsuario.disponibilidad || "",
+          promedio: 0,
+        };
+
+        const resultadoProfesional = await db.insertar(
+          "profesionales",
+          profesionalData
+        );
+        const profesionalId = resultadoProfesional.insertId;
+
+        // NO se agregan ubicaciones a ubicaciones_prof aquí (queda lista vacía)
+
+        if (oficios && Array.isArray(oficios) && oficios.length > 0) {
+          for (const nombreOficio of oficios) {
+            if (typeof nombreOficio !== "string") {
+              throw crearError("Cada oficio debe ser un string (nombre)", 400);
+            }
+            const oficioId = await obtenerOCrearOficio(nombreOficio.trim());
+            await db.insertar("oficios_prof", {
+              profesional_id: profesionalId,
+              oficio_id: oficioId,
+            });
+          }
+        }
+      }
+
+      await db.consulta("COMMIT");
+      return resultadoUsuario;
+    } catch (error) {
+      await db.consulta("ROLLBACK");
+      throw error;
+    }
   }
 
-  function actualizar(body) {
-    if (body.password) {
-      body.password = bcrypt.hashSync(body.password, 10);
+  async function actualizar(body) {
+    if (!body.id) {
+      throw crearError("ID no proporcionado", 400);
     }
-    return db.actualizar(TABLA, body);
+
+    const usuarioExistente = await db.uno(TABLA, body.id);
+    if (!usuarioExistente || usuarioExistente.length === 0) {
+      throw crearError(`Usuario con id ${body.id} no encontrado`, 404);
+    }
+
+    const {
+      ubicacion,
+      ubicaciones,
+      oficios,
+      descripcion,
+      estado,
+      disponibilidad,
+      ...datosUsuario
+    } = body;
+
+    await db.consulta("START TRANSACTION");
+
+    try {
+      if (!ubicacion || !ubicacion.zona || !ubicacion.ciudad) {
+        throw crearError("Ubicación con zona y ciudad es requerida", 400);
+      }
+
+      const ubicacionId = await obtenerOCrearUbicacion(
+        ubicacion.zona,
+        ubicacion.ciudad
+      );
+      datosUsuario.ubicacion_id = ubicacionId;
+
+      await db.actualizar(TABLA, datosUsuario);
+
+      if (datosUsuario.rol_id === 2) {
+        await db.consulta("COMMIT");
+        return { message: "Usuario actualizado correctamente" };
+      }
+
+      if (datosUsuario.rol_id === 3) {
+        const profesionalExistente = await db.consulta(
+          `
+    SELECT * FROM profesionales WHERE usuario_id = ?`,
+          [body.id]
+        );
+        console.log(profesionalExistente);
+
+        const profesionalDataActual = profesionalExistente[0];
+
+        let verificado = profesionalDataActual.verificacion;
+
+        if (verificado !== 1) {
+          if (
+            descripcion &&
+            estado &&
+            disponibilidad &&
+            ubicaciones &&
+            Array.isArray(ubicaciones) &&
+            ubicaciones.length > 0
+          ) {
+            verificado = 1;
+          }
+        }
+
+        const profesionalData = {
+          id: profesionalDataActual.id,
+          descripcion: descripcion || profesionalDataActual.descripcion,
+          verificacion: verificado,
+          estado: estado || profesionalDataActual.estado,
+          disponibilidad:
+            disponibilidad || profesionalDataActual.disponibilidad,
+          promedio: profesionalDataActual.promedio,
+        };
+
+        await db.actualizar("profesionales", profesionalData);
+
+        if (
+          ubicaciones &&
+          Array.isArray(ubicaciones) &&
+          ubicaciones.length > 0
+        ) {
+          await db.consulta(
+            `
+            DELETE FROM ubicaciones_prof WHERE profesional_id = ?
+          `,
+            [profesionalDataActual.id]
+          );
+          for (const nombreUbicacion of ubicaciones) {
+            if (
+              typeof nombreUbicacion.zona !== "string" ||
+              typeof nombreUbicacion.ciudad !== "string"
+            ) {
+              throw crearError(
+                "Cada ubicación debe tener una zona y una ciudad como cadenas de texto",
+                400
+              );
+            }
+            if (
+              !nombreUbicacion.zona.trim() ||
+              !nombreUbicacion.ciudad.trim()
+            ) {
+              throw crearError(
+                "La zona y la ciudad no pueden ser cadenas vacías",
+                400
+              );
+            }
+            const ubicacionId = await obtenerOCrearUbicacion(
+              nombreUbicacion.zona,
+              nombreUbicacion.ciudad
+            );
+            await db.insertar("ubicaciones_prof", {
+              profesional_id: profesionalDataActual.id,
+              ubicacion_id: ubicacionId,
+            });
+          }
+        }
+
+        if (oficios && Array.isArray(oficios) && oficios.length > 0) {
+          await db.consulta(
+            `
+            DELETE FROM oficios_prof WHERE profesional_id = ?
+          `,
+            [profesionalDataActual.id]
+          );
+          for (const nombreOficio of oficios) {
+            if (typeof nombreOficio !== "string") {
+              throw crearError("Cada oficio debe ser un string (nombre)", 400);
+            }
+            if (!nombreOficio.trim()) {
+              throw crearError(
+                "El nombre del oficio no puede ser una cadena vacía",
+                400
+              );
+            }
+            const oficioId = await obtenerOCrearOficio(nombreOficio);
+            await db.insertar("oficios_prof", {
+              profesional_id: profesionalDataActual.id,
+              oficio_id: oficioId,
+            });
+          }
+        }
+      }
+
+      await db.consulta("COMMIT");
+      return { message: "Usuario profesional actualizado correctamente" };
+    } catch (error) {
+      await db.consulta("ROLLBACK");
+      throw error;
+    }
   }
 
   async function eliminar(id) {

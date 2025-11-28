@@ -5,8 +5,7 @@ const error = require('../middleware/errors');
 const secret = config.jwt.secret;
 
 function asignarToken(data){
-    return jwt.sign(data, secret);
-    // return jwt.sign(data, secret, { expiresIn: '1h' });
+    return jwt.sign(data, secret, { expiresIn: '24h' });
 }
 
 function verificarToken(token){
@@ -16,10 +15,6 @@ function verificarToken(token){
 const chequearToken = {
     confirmarToken: function(req){
         const decodificado = decodificarCabecera(req);
-
-        // if(decodificado.rol_id !== 1){
-        //     throw error("No autorizado", 401);
-        // }
     }
 }
 

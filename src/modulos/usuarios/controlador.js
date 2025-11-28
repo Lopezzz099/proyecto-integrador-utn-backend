@@ -11,7 +11,6 @@ module.exports = function (dbInyectada) {
     db = require("../../DB/mysql");
   }
 
-  // GET /usuarios - Trae todos, profesionales con datos completos
   async function todos() {
     const usuarios = await db.todos(TABLA);
     const resultado = await Promise.all(
@@ -29,7 +28,6 @@ module.exports = function (dbInyectada) {
     return db.uno(TABLA, id).then(stripPasswords);
   }
 
-  // GET usuario con rol 3: incluye profesional + comentarios + ubicaciones + oficios
   async function unoConProfesional(id) {
     const rows = await db.consulta(
       `
@@ -52,8 +50,8 @@ module.exports = function (dbInyectada) {
         c.estrellas,
         c.usuario_id AS comentario_usuario_id,
         pu.ubicacion_id AS ubicacion_id,
-        ub.zona AS ubicacion_zona,
-        ub.ciudad AS ubicacion_ciudad,
+        ub.localidad AS ubicacion_localidad,
+        ub.municipio AS ubicacion_municipio,
         po.oficio_id AS oficio_id,
         ofi.nombre AS oficio_nombre
       FROM usuarios u
@@ -103,7 +101,7 @@ module.exports = function (dbInyectada) {
       rows.forEach((r) => {
         if (r.comentario_id && !comentariosUnicos.has(r.comentario_id)) {
           comentariosUnicos.add(r.comentario_id);
-            usuario.profesional.comentarios.push({
+          usuario.profesional.comentarios.push({
             id: r.comentario_id,
             comentario: r.comentario,
             estrellas: r.estrellas,
@@ -114,8 +112,8 @@ module.exports = function (dbInyectada) {
           ubicacionesUnicas.add(r.ubicacion_id);
           usuario.profesional.ubicaciones.push({
             id: r.ubicacion_id,
-            zona: r.ubicacion_zona,
-            ciudad: r.ubicacion_ciudad,
+            localidad: r.ubicacion_localidad,
+            municipio: r.ubicacion_municipio,
           });
         }
         if (r.oficio_id && !oficiosUnicos.has(r.oficio_id)) {
@@ -143,18 +141,21 @@ module.exports = function (dbInyectada) {
     return stripPassword(usuario);
   }
 
-  async function obtenerOCrearUbicacion(zona, ciudad) {
-    if (!zona || !ciudad) {
-      throw crearError("Ubicación debe tener zona y ciudad", 400);
+  async function obtenerOCrearUbicacion(localidad, municipio) {
+    if (!localidad || !municipio) {
+      throw crearError("Ubicación debe tener localidad y municipio", 400);
     }
     const existente = await db.consulta(
-      "SELECT id FROM ubicaciones WHERE zona = ? AND ciudad = ?",
-      [zona, ciudad]
+      "SELECT id FROM ubicaciones WHERE localidad = ? AND municipio = ?",
+      [localidad, municipio]
     );
     if (existente && existente.length > 0) {
       return existente[0].id;
     }
-    const resultado = await db.insertar("ubicaciones", { zona, ciudad });
+    const resultado = await db.insertar("ubicaciones", {
+      localidad,
+      municipio,
+    });
     return resultado.insertId;
   }
 
@@ -186,13 +187,16 @@ module.exports = function (dbInyectada) {
 
     await db.consulta("START TRANSACTION");
     try {
-      if (!ubicacion || !ubicacion.zona || !ubicacion.ciudad) {
-        throw crearError("Ubicación con zona y ciudad es requerida", 400);
+      if (!ubicacion || !ubicacion.localidad || !ubicacion.municipio) {
+        throw crearError(
+          "Ubicación con localidad y municipio es requerida",
+          400
+        );
       }
 
       const ubicacionId = await obtenerOCrearUbicacion(
-        ubicacion.zona,
-        ubicacion.ciudad
+        ubicacion.localidad,
+        ubicacion.municipio
       );
       datosUsuario.ubicacion_id = ubicacionId;
 
@@ -208,7 +212,7 @@ module.exports = function (dbInyectada) {
         const profesionalData = {
           usuario_id: usuarioId,
           descripcion: datosUsuario.descripcion || "",
-            verificacion: datosUsuario.verificacion || "0",
+          verificacion: datosUsuario.verificacion || "0",
           estado: datosUsuario.estado || "0",
           disponibilidad: datosUsuario.disponibilidad || "",
           promedio: 0,
@@ -265,13 +269,16 @@ module.exports = function (dbInyectada) {
     await db.consulta("START TRANSACTION");
 
     try {
-      if (!ubicacion || !ubicacion.zona || !ubicacion.ciudad) {
-        throw crearError("Ubicación con zona y ciudad es requerida", 400);
+      if (!ubicacion || !ubicacion.localidad || !ubicacion.municipio) {
+        throw crearError(
+          "Ubicación con localidad y municipio es requerida",
+          400
+        );
       }
 
       const ubicacionId = await obtenerOCrearUbicacion(
-        ubicacion.zona,
-        ubicacion.ciudad
+        ubicacion.localidad,
+        ubicacion.municipio
       );
       datosUsuario.ubicacion_id = ubicacionId;
 
@@ -316,30 +323,37 @@ module.exports = function (dbInyectada) {
 
         await db.actualizar("profesionales", profesionalData);
 
-        if (ubicaciones && Array.isArray(ubicaciones) && ubicaciones.length > 0) {
+        if (
+          ubicaciones &&
+          Array.isArray(ubicaciones) &&
+          ubicaciones.length > 0
+        ) {
           await db.consulta(
             `DELETE FROM ubicaciones_prof WHERE profesional_id = ?`,
             [profesionalDataActual.id]
           );
           for (const nombreUbicacion of ubicaciones) {
             if (
-              typeof nombreUbicacion.zona !== "string" ||
-              typeof nombreUbicacion.ciudad !== "string"
+              typeof nombreUbicacion.localidad !== "string" ||
+              typeof nombreUbicacion.municipio !== "string"
             ) {
               throw crearError(
-                "Cada ubicación debe tener zona y ciudad como texto",
+                "Cada ubicación debe tener localidad y municipio como texto",
                 400
               );
             }
-            if (!nombreUbicacion.zona.trim() || !nombreUbicacion.ciudad.trim()) {
+            if (
+              !nombreUbicacion.localidad.trim() ||
+              !nombreUbicacion.municipio.trim()
+            ) {
               throw crearError(
-                "La zona y la ciudad no pueden estar vacías",
+                "La localidad y la municipio no pueden estar vacías",
                 400
               );
             }
             const ubicacionIdTemp = await obtenerOCrearUbicacion(
-              nombreUbicacion.zona,
-              nombreUbicacion.ciudad
+              nombreUbicacion.localidad,
+              nombreUbicacion.municipio
             );
             await db.insertar("ubicaciones_prof", {
               profesional_id: profesionalDataActual.id,
@@ -358,7 +372,10 @@ module.exports = function (dbInyectada) {
               throw crearError("Cada oficio debe ser un string (nombre)", 400);
             }
             if (!nombreOficio.trim()) {
-              throw crearError("El nombre del oficio no puede estar vacío", 400);
+              throw crearError(
+                "El nombre del oficio no puede estar vacío",
+                400
+              );
             }
             const oficioId = await obtenerOCrearOficio(nombreOficio);
             await db.insertar("oficios_prof", {
@@ -432,14 +449,14 @@ module.exports = function (dbInyectada) {
     return resultado;
   }
 
-  async function profesionalesPorUbicacion(zonaParam, ciudadParam) {
+  async function profesionalesPorUbicacion(localidadParam, municipioParam) {
     if (
-      !zonaParam ||
-      !zonaParam.trim() ||
-      !ciudadParam ||
-      !ciudadParam.trim()
+      !localidadParam ||
+      !localidadParam.trim() ||
+      !municipioParam ||
+      !municipioParam.trim()
     ) {
-      throw crearError("Zona y ciudad requeridas", 400);
+      throw crearError("localidad y municipio requeridas", 400);
     }
     const rows = await db.consulta(
       `
@@ -449,10 +466,10 @@ module.exports = function (dbInyectada) {
       JOIN ubicaciones_prof up ON up.profesional_id = p.id
       JOIN ubicaciones ub ON ub.id = up.ubicacion_id
       WHERE u.rol_id = 3
-        AND ub.zona LIKE ?
-        AND ub.ciudad LIKE ?
+        AND ub.localidad LIKE ?
+        AND ub.municipio LIKE ?
       `,
-      [`%${zonaParam}%`, `%${ciudadParam}%`]
+      [`%${localidadParam}%`, `%${municipioParam}%`]
     );
     if (!rows || rows.length === 0) {
       return [];

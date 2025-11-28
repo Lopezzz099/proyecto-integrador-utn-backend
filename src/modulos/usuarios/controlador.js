@@ -455,6 +455,68 @@ module.exports = function (dbInyectada) {
     }
   }
 
+  async function profesionalesPorOficio(nombreOficio) {
+    if (!nombreOficio || !nombreOficio.trim()) {
+      throw crearError("Nombre de oficio requerido", 400);
+    }
+    const filtro = nombreOficio.trim();
+
+    const rows = await db.consulta(
+      `
+      SELECT DISTINCT u.id
+      FROM usuarios u
+      JOIN profesionales p ON p.usuario_id = u.id
+      JOIN oficios_prof op ON op.profesional_id = p.id
+      JOIN oficios o ON o.id = op.oficio_id
+      WHERE u.rol_id = 3
+        AND o.nombre LIKE ?
+      `,
+      [`%${filtro}%`]
+    );
+
+    if (!rows || rows.length === 0) {
+      return [];
+    }
+
+    const resultado = [];
+    for (const r of rows) {
+      const detalle = await unoConProfesional(r.id);
+      if (detalle) resultado.push(detalle);
+    }
+    return resultado;
+  }
+
+  async function profesionalesPorUbicacion(zonaParam, ciudadParam) {
+    if (!zonaParam || !zonaParam.trim() || !ciudadParam || !ciudadParam.trim()) {
+      throw crearError("Zona y ciudad requeridas", 400);
+    }
+
+    const rows = await db.consulta(
+      `
+      SELECT DISTINCT u.id
+      FROM usuarios u
+      JOIN profesionales p ON p.usuario_id = u.id
+      JOIN ubicaciones_prof up ON up.profesional_id = p.id
+      JOIN ubicaciones ub ON ub.id = up.ubicacion_id
+      WHERE u.rol_id = 3
+        AND ub.zona LIKE ?
+        AND ub.ciudad LIKE ?
+      `,
+      [`%${zonaParam}%`, `%${ciudadParam}%`]
+    );
+
+    if (!rows || rows.length === 0) {
+      return [];
+    }
+
+    const resultado = [];
+    for (const r of rows) {
+      const detalle = await unoConProfesional(r.id);
+      if (detalle) resultado.push(detalle);
+    }
+    return resultado;
+  }
+
   return {
     todos,
     uno,
@@ -464,5 +526,7 @@ module.exports = function (dbInyectada) {
     insertar,
     actualizar,
     login,
+    profesionalesPorOficio,
+    profesionalesPorUbicacion
   };
 };

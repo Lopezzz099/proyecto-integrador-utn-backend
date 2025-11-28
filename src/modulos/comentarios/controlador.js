@@ -24,7 +24,10 @@ module.exports = function (dbInyectada) {
 
     const valor = promedio === null ? 0 : Number(promedio.toFixed(2));
 
-    await db.actualizar("profesionales", { id: profesionalId, promedio: valor });
+    await db.actualizar("profesionales", {
+      id: profesionalId,
+      promedio: valor,
+    });
   }
 
   async function insertar(body) {
@@ -77,7 +80,7 @@ module.exports = function (dbInyectada) {
     eliminar,
     insertar,
     actualizar,
-    // Opcional: exportar para recalcular manualmente si lo necesitás
+    //Opcional: exportar para recalcular manualmente si se necesita
     recalcularPromedio,
   };
 };

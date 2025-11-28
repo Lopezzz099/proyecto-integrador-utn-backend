@@ -1,6 +1,6 @@
 const crearError = require("../../middleware/errors");
 
-const TABLA = "profesionales";
+const TABLA = "oficios";
 
 module.exports = function (dbInyectada) {
 
@@ -28,7 +28,7 @@ module.exports = function (dbInyectada) {
   async function eliminar(id) {
     const existe = await db.uno(TABLA, id);
     if (!existe || existe.length === 0) {
-      throw crearError(`No existe cliente con id ${id}`, 404);
+      throw crearError(`No existe oficio con id ${id}`, 404);
     }
     const resultado = await db.eliminar(TABLA, id);
     if (resultado.affectedRows === 0) {

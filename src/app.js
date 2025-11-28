@@ -5,9 +5,10 @@ const app = express();
 const morgan = require("morgan");
 const error = require("./red/errors");
 const usuarios = require("./modulos/usuarios/rutas");
-const profesionales = require("./modulos/profesionales/rutas");
 const comentarios = require("./modulos/comentarios/rutas");
 const roles = require("./modulos/roles/rutas");
+const oficios = require("./modulos/oficios/rutas");
+const ubicaciones = require("./modulos/ubicaciones/rutas");
 
 //middlewares
 app.use(morgan("dev"));
@@ -41,9 +42,10 @@ app.use(
 
 //rutas
 app.use("/api/usuarios", usuarios);
-app.use("/api/profesionales", profesionales);
 app.use("/api/comentarios", comentarios);
 app.use("/api/roles", roles);
+app.use("/api/oficios", oficios);
+app.use("/api/ubicaciones", ubicaciones);
 
 app.use(error);
 

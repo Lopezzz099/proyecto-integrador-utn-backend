@@ -6,7 +6,8 @@ const seguridad = require("./seguridad");
 const { normalizarParametro } = require("../../utils/normalizar");
 
 router.post("/login", login);
-router.get("/", seguridad({ requireRole: 1 }), todos);
+// router.get("/", seguridad({ requireRole: 1 }), todos);
+router.get("/", seguridad(), todos);
 router.get("/:id", seguridad(), uno);
 router.put("/", seguridad(), actualizar);
 router.delete("/:id", seguridad(), eliminar);

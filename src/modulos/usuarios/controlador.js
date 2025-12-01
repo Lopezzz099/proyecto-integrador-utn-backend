@@ -434,6 +434,7 @@ module.exports = function (dbInyectada) {
       JOIN oficios_prof op ON op.profesional_id = p.id
       JOIN oficios o ON o.id = op.oficio_id
       WHERE u.rol_id = 3
+        AND p.verificacion = 1
         AND o.nombre LIKE ?
       `,
       [`%${filtro}%`]
@@ -466,6 +467,7 @@ module.exports = function (dbInyectada) {
       JOIN ubicaciones_prof up ON up.profesional_id = p.id
       JOIN ubicaciones ub ON ub.id = up.ubicacion_id
       WHERE u.rol_id = 3
+        AND p.verificacion = 1
         AND ub.localidad LIKE ?
         AND ub.municipio LIKE ?
       `,
@@ -493,6 +495,7 @@ module.exports = function (dbInyectada) {
       FROM usuarios u
       JOIN profesionales p ON p.usuario_id = u.id
       WHERE u.rol_id = 3
+        AND p.verificacion = 1
         AND u.nombre LIKE ?
       `,
       [`%${filtro}%`]
